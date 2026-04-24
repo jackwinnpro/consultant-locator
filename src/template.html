@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jack Winn Pro — Consultant Locator</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #fafaf8; color: #1a1a1a; margin: 0; padding: 24px; line-height: 1.4;
+}
+.container { max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: #6b6b6b; font-size: 13px; margin-bottom: 20px; }
+.controls {
+  display: flex; gap: 12px; align-items: end; flex-wrap: wrap;
+  padding: 16px 18px; background: #fff; border: 1px solid #e6e4df;
+  border-radius: 8px; margin-bottom: 16px;
+}
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #666; font-weight: 600; }
+.field input, .field select {
+  padding: 8px 10px; font-size: 14px; border: 1px solid #d8d6d0;
+  border-radius: 5px; background: #fff; color: #1a1a1a; font-family: inherit;
+}
+.field input:focus, .field select:focus { outline: 2px solid #b87333; outline-offset: -1px; border-color: #b87333; }
+button {
+  padding: 8px 18px; font-size: 14px; font-weight: 600;
+  background: #1a1a1a; color: #fff; border: none; border-radius: 5px;
+  cursor: pointer; font-family: inherit;
+}
+button:hover:not(:disabled) { background: #333; }
+button:disabled, input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+#zip-input { width: 100px; }
+#max-dist, #type-filter, #limit { width: 140px; }
+.status { font-size: 13px; color: #666; margin: 10px 2px 14px; min-height: 18px; }
+.status.err { color: #a03030; }
+.status.loading { color: #888; font-style: italic; }
+table {
+  width: 100%; border-collapse: collapse; background: #fff;
+  border: 1px solid #e6e4df; border-radius: 8px; overflow: hidden; font-size: 13px;
+}
+thead th {
+  text-align: left; padding: 10px 12px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: #555;
+  background: #f4f2ec; border-bottom: 1px solid #e6e4df; font-weight: 600; white-space: nowrap;
+}
+tbody td { padding: 10px 12px; border-bottom: 1px solid #f0eee8; vertical-align: top; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: #faf8f2; }
+.dist { font-weight: 600; color: #b87333; white-space: nowrap; }
+.name { font-weight: 600; }
+.company { color: #555; font-size: 12px; }
+.addr { color: #444; }
+.type-badge {
+  display: inline-block; padding: 1px 7px; border-radius: 3px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.type-P { background: #e8f0e8; color: #2d5f2d; }
+.type-A { background: #f0e8f0; color: #5f2d5f; }
+.meta { font-size: 11px; color: #777; text-align: right; margin-top: 14px; }
+.empty {
+  padding: 40px; text-align: center; color: #888;
+  background: #fff; border: 1px solid #e6e4df; border-radius: 8px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Consultant Locator</h1>
+  <div class="sub">Search for Jack Winn Pro consultants near a zip code. Only shows consultants with 3+ orders in the past 6 months.</div>
+
+  <div class="controls">
+    <div class="field">
+      <label for="zip-input">Zip Code</label>
+      <input id="zip-input" type="text" maxlength="5" pattern="[0-9]{5}" placeholder="92656" inputmode="numeric">
+    </div>
+    <div class="field">
+      <label for="max-dist">Within</label>
+      <select id="max-dist">
+        <option value="25">25 miles</option>
+        <option value="50">50 miles</option>
+        <option value="100" selected>100 miles</option>
+        <option value="250">250 miles</option>
+        <option value="99999">Any distance</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="type-filter">Type</label>
+      <select id="type-filter">
+        <option value="">All types</option>
+        <option value="Professional">Professional</option>
+        <option value="Ambassador">Ambassador</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="limit">Show</label>
+      <select id="limit">
+        <option value="25" selected>Top 25</option>
+        <option value="50">Top 50</option>
+        <option value="100">Top 100</option>
+        <option value="9999">All matches</option>
+      </select>
+    </div>
+    <button id="search-btn" type="button">Search</button>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="results"></div>
+
+  <div class="meta">
+    <span id="count-total">__CONSULTANT_COUNT__</span> active consultants · data refreshed __UPDATED__
+  </div>
+</div>
+
+<script>
+// ZIP3_INDEX: first 3 digits of zip → [lat, lng] centroid (~30 mi accuracy)
+const ZIP3_INDEX = __ZIP3_JSON__;
+// CONSULTANTS: array of tuples [name, company, city, state, zip, orders, last_days_ago, type_code]
+const CONSULTANTS_RAW = __CONSULTANTS_JSON__;
+const TYPE_LABELS = ['Ambassador', 'Professional'];
+const TODAY_MS = __TODAY_MS__;
+
+const CONSULTANTS = CONSULTANTS_RAW.map(r => {
+  const zip = r[4];
+  const ll = ZIP3_INDEX[zip.slice(0, 3)] || [0, 0];
+  return {
+    name: r[0], company: r[1], city: r[2], state: r[3], zip: zip,
+    lat: ll[0], lng: ll[1], orders: r[5], lastDays: r[6], type: TYPE_LABELS[r[7]],
+  };
+});
+
+document.getElementById('zip-input').focus();
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function formatLast(daysAgo) {
+  if (daysAgo < 0) return '';
+  const d = new Date(TODAY_MS - daysAgo * 86400000);
+  return `${d.getUTCMonth()+1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+}
+
+function search() {
+  const zipInput = document.getElementById('zip-input');
+  const zip = zipInput.value.trim();
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+  statusEl.className = 'status';
+
+  if (!/^\d{5}$/.test(zip)) {
+    statusEl.textContent = 'Enter a 5-digit zip code.';
+    statusEl.className = 'status err';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  const zip3 = zip.slice(0, 3);
+  const origin = ZIP3_INDEX[zip3];
+  if (!origin) {
+    statusEl.textContent = `Zip ${zip} not found in the US zip database.`;
+    statusEl.className = 'status err';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  const [oLat, oLng] = origin;
+  const maxDist = parseFloat(document.getElementById('max-dist').value);
+  const typeFilter = document.getElementById('type-filter').value;
+  const limit = parseInt(document.getElementById('limit').value);
+
+  let matches = CONSULTANTS.map(c => ({ ...c, dist: haversine(oLat, oLng, c.lat, c.lng) }))
+    .filter(c => c.dist <= maxDist)
+    .filter(c => !typeFilter || c.type === typeFilter)
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, limit);
+
+  if (matches.length === 0) {
+    resultsEl.innerHTML = '<div class="empty">No consultants found within ' + maxDist + ' miles of ' + zip + '.</div>';
+    statusEl.textContent = '';
+    return;
+  }
+
+  statusEl.textContent = `Found ${matches.length} consultant${matches.length === 1 ? '' : 's'} near ${zip}.`;
+
+  const rows = matches.map(c => {
+    const typeChar = (c.type || '').charAt(0).toUpperCase();
+    const typeClass = typeChar === 'P' ? 'type-P' : 'type-A';
+    const typeLabel = c.type || 'Ambassador';
+    const company = c.company ? `<div class="company">${escapeHtml(c.company)}</div>` : '';
+    const addr = `${escapeHtml(c.city)}, ${escapeHtml(c.state)} ${escapeHtml(c.zip)}`;
+    return `<tr>
+      <td class="dist">${c.dist < 1 ? '<1' : c.dist.toFixed(1)} mi</td>
+      <td><div class="name">${escapeHtml(c.name)}</div>${company}</td>
+      <td class="addr">${addr}</td>
+      <td>${formatLast(c.lastDays)}</td>
+      <td>${c.orders}</td>
+      <td><span class="type-badge ${typeClass}">${escapeHtml(typeLabel)}</span></td>
+    </tr>`;
+  }).join('');
+
+  resultsEl.innerHTML = `<table>
+    <thead>
+      <tr>
+        <th>Distance</th>
+        <th>Name / Salon</th>
+        <th>Address</th>
+        <th>Last Order</th>
+        <th>Orders<br><span style="text-transform:none;font-weight:400;font-size:9px;color:#888">6mo</span></th>
+        <th>Type</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+document.getElementById('search-btn').addEventListener('click', search);
+document.getElementById('zip-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') search();
+});
+['max-dist', 'type-filter', 'limit'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (document.getElementById('zip-input').value.trim().length === 5) search();
+  });
+});
+</script>
+</body>
+</html>
